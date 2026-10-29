@@ -123,6 +123,7 @@ class RadialMenu(QWidget):
         self.is_light = False
         self._serial = 0
         self.got_drag = False
+        self.fresh_drag = False   # macOS: files read from this drag's pasteboard
         self.hub_armed = False
         self.click_mode = False
         self._t = 1.0
@@ -139,7 +140,7 @@ class RadialMenu(QWidget):
         self.hub_timer = QTimer(self, singleShot=True, interval=420, timeout=self.next_ring)
         self.frame = QTimer(self, interval=16, timeout=self._tick)
 
-    def popup(self, pos: QPoint | None = None, paths: list[str] | None = None):
+    def popup(self, pos: QPoint | None = None, paths: list[str] | None = None, fresh: bool = True):
         pos = pos or QCursor.pos()
         tl = pos - QPoint(SIZE // 2, SIZE // 2)
         scr = QGuiApplication.screenAt(pos) or QGuiApplication.primaryScreen()
@@ -158,12 +159,14 @@ class RadialMenu(QWidget):
         self.hub_armed = False
         self.click_mode = paths is not None
         early = []
-        if paths is None and sys.platform == "darwin":
+        self.fresh_drag = False
+        if paths is None and fresh and sys.platform == "darwin":
             # macOS only reports a drag to a window once the cursor moves over it:
             # read the drag pasteboard so the slices show the moment the menu opens
             from . import platform_mac
             early = platform_mac.drag_files()
             if early:
+                self.fresh_drag = True
                 print(f"menu: {len(early)} file(s) from the drag pasteboard", flush=True)
         if paths is not None:
             self._load(paths)
@@ -182,6 +185,17 @@ class RadialMenu(QWidget):
         self.frame.start()
         if self.click_mode:
             QTimer.singleShot(0, self.grabMouse)
+
+    def load_drag_pasteboard(self):
+        """macOS: the drag's files became readable after the menu opened."""
+        if not self.isVisible() or self.click_mode or self.got_drag or self.fresh_drag:
+            return
+        from . import platform_mac
+        early = platform_mac.drag_files()
+        if early:
+            self.fresh_drag = True
+            print(f"menu: {len(early)} file(s) from the drag pasteboard (late)", flush=True)
+            self._load(early)
 
     def close_menu(self):
         if self.isVisible():

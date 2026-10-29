@@ -23,6 +23,7 @@ DEFAULTS = {
     "pdf_dpi": 200,
     "trigger": "shift",
     "welcomed": False,
+    "double_tap": True,     # macOS: tap the trigger key twice on a Finder selection
 }
 
 
@@ -165,6 +166,13 @@ class SettingsWindow(GlassWindow):
             self.auto.toggled.connect(set_autostart)
             grid.addWidget(self.auto, r, 1)
             r += 1
+        if IS_MAC:
+            key = {"shift": "Shift", "ctrl": "Control", "alt": "Option"}.get(self.s.get("trigger"), "Shift")
+            self.dtap = QCheckBox(f"Tap {key} twice on files selected in Finder to open the menu")
+            self.dtap.setChecked(bool(self.s.get("double_tap")))
+            self.dtap.toggled.connect(lambda v: self._save("double_tap", bool(v)))
+            grid.addWidget(self.dtap, r, 1)
+            r += 1
         self.body.addLayout(grid)
         self.body.addStretch(1)
         about = QLabel(f"DragShift {__version__}  ·  originals are never modified")
@@ -194,6 +202,9 @@ class WelcomeWindow(GlassWindow):
             ("3", "Drop it on a slice", "the result is saved next to the original"),
             ("⇄", f"Tap {trigger_label} again", "to switch between Convert and Tools"),
         ]
+        if IS_MAC:
+            steps.append(("2×", f"Or select a file and tap {trigger_label} twice",
+                          "the menu opens without dragging — just click a slice"))
         for n, head, sub in steps:
             row = QHBoxLayout()
             badge = QLabel(n)

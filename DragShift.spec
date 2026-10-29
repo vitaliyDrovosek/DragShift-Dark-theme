@@ -54,6 +54,8 @@ if IS_MAC:
             "LSMinimumSystemVersion": "11.0",
             "NSHighResolutionCapable": True,
             "NSRequiresAquaSystemAppearance": False,
+            # tap Shift twice on a Finder selection: DragShift asks Finder which files are selected
+            "NSAppleEventsUsageDescription": "DragShift asks Finder which files are selected, so a double tap of Shift can open its menu for them.",
             # show up in Finder's "Open With" for any file, and accept drops on the app icon
             "CFBundleDocumentTypes": [{
                 "CFBundleTypeName": "Any file",

@@ -113,3 +113,114 @@ def test_shortcut_resolves_to_target(img, tmp_path):
     out = resolve_shortcuts([str(lnk)])
     assert Path(out[0]) == img and category(out[0]) == "image"
     assert resolve_shortcuts([str(img)]) == [str(img)]
+
+
+# ---------------------------------------------------------------- double tap (macOS Finder menu)
+def test_double_tap_fires_on_two_quick_taps():
+    from dragshift.trigger import DoubleTap
+    d = DoubleTap()
+    seq = [(False, 0.0), (True, 0.10), (False, 0.18), (True, 0.40), (False, 0.48)]
+    fired = [d.update(k, t) for k, t in seq]
+    assert fired == [False, False, False, False, True]
+
+
+def test_double_tap_ignores_slow_held_and_dirty_taps():
+    from dragshift.trigger import DoubleTap
+    d = DoubleTap()   # gap too long
+    assert not any(d.update(k, t) for k, t in [(True, 0.0), (False, 0.1), (True, 1.0), (False, 1.1)])
+    d = DoubleTap()   # second press held (Shift used for typing / selecting)
+    assert not any(d.update(k, t) for k, t in [(True, 0.0), (False, 0.1), (True, 0.3), (False, 1.2)])
+    d = DoubleTap()   # something else happened in between (mouse button, letter typed)
+    out = [d.update(True, 0.0), d.update(False, 0.1), d.update(False, 0.2, clean=False),
+           d.update(True, 0.3), d.update(False, 0.4)]
+    assert not any(out)
+    d = DoubleTap()   # a slow first tap starts over, then two quick taps still work
+    out = [d.update(k, t) for k, t in [(True, 0.0), (False, 0.1), (True, 2.0), (False, 2.1), (True, 2.3), (False, 2.4)]]
+    assert out[-1] and sum(out) == 1
+
+
+def _fake_watcher(monkeypatch, drag_alive=False):
+    """A DragShiftWatcher wired to a fake macOS input layer and a fake clock."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QApplication
+    from dragshift import trigger
+    QApplication.instance() or QApplication([])
+
+    class FakeMac:
+        btn = shift = esc = False
+        typed_ago = 1e9
+        count = 1
+        alive = drag_alive
+        def left_button_down(self): return self.btn
+        def key_down(self, name): return self.shift
+        def escape_down(self): return self.esc
+        def drag_change_count(self): return self.count
+        def drag_session_active(self): return self.alive
+        def other_modifiers_down(self, name): return False
+        def seconds_since_key_typed(self): return self.typed_ago
+
+    clock = {"t": 100.0}
+    monkeypatch.setattr(trigger.time, "monotonic", lambda: clock["t"])
+    pos = {"p": QPoint(100, 100)}
+    monkeypatch.setattr(trigger.QCursor, "pos", staticmethod(lambda: pos["p"]))
+    state = {"visible": False, "got": False}
+    w = trigger.DragShiftWatcher(lambda: state["visible"], lambda: state["got"])
+    fake = FakeMac()
+    w._mac = w._darwin = fake
+    ev = {"show": 0, "hide": 0, "tap": 0}
+    w.show_menu.connect(lambda p: (ev.__setitem__("show", ev["show"] + 1), state.__setitem__("visible", True)))
+    w.double_tap.connect(lambda p: ev.__setitem__("tap", ev["tap"] + 1))
+    monkeypatch.setattr(trigger.QTimer, "singleShot", staticmethod(lambda ms, f: ev.__setitem__("hide", ev["hide"] + 1)))
+    w.hide_menu.connect(lambda: ev.__setitem__("hide", ev["hide"] + 1))
+
+    def tick(dt=0.015, **kw):
+        for k, v in kw.items():
+            setattr(fake, k, v)
+        clock["t"] += dt
+        w._tick()
+    return w, fake, pos, ev, tick, state
+
+
+def test_trackpad_flicker_does_not_close_the_menu(monkeypatch):
+    from PySide6.QtCore import QPoint
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    tick(btn=True)
+    pos["p"] = QPoint(130, 100); fake.count = 2          # Finder starts the drag
+    tick(btn=True, shift=True)
+    assert ev["show"] == 1 and w.fresh_file_drag()
+    tick(btn=False); tick(btn=False); tick(btn=False)   # 45 ms "no button": trackpad blip
+    assert ev["hide"] == 0
+    tick(btn=True)
+    for _ in range(10):                                  # real release
+        tick(btn=False)
+    assert ev["hide"] >= 1
+
+
+def test_drag_picture_keeps_menu_open_while_button_reads_up(monkeypatch):
+    from PySide6.QtCore import QPoint
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch, drag_alive=True)
+    tick(btn=True); pos["p"] = QPoint(130, 100); tick(btn=True, shift=True)
+    for _ in range(40):                                  # three-finger drag: no button for 0.6 s
+        tick(btn=False, shift=False)
+    assert ev["hide"] == 0
+    fake.alive = False                                   # drag picture gone = drop finished
+    tick(dt=0.1, btn=False)
+    assert ev["hide"] >= 1
+
+
+def test_stale_drag_pasteboard_is_not_fresh(monkeypatch):
+    from PySide6.QtCore import QPoint
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    tick(btn=True); pos["p"] = QPoint(130, 100); tick(btn=True, shift=True)   # count unchanged
+    assert ev["show"] == 1 and not w.fresh_file_drag()
+
+
+def test_double_tap_shift_emits_and_typing_does_not(monkeypatch):
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    tick(); tick(dt=0.1, shift=True); tick(dt=0.08, shift=False); tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    assert ev["tap"] == 1
+    tick(dt=1.0)
+    tick(dt=0.1, shift=True); tick(dt=0.08, shift=False)
+    fake.typed_ago = 0.05                                # a capital letter was just typed
+    tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    assert ev["tap"] == 1

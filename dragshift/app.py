@@ -142,9 +142,15 @@ class DragShiftApp(QObject):
         # the watcher only manages menus it opened (drag mode); click-mode menus (tray, right-click,
         # Send To) must not be closed just because no mouse button is held
         self.watcher = DragShiftWatcher(lambda: self.menu.isVisible() and not self.menu.click_mode,
-                                        lambda: self.menu.got_drag, self)
+                                        lambda: self.menu.got_drag or self.menu.fresh_drag, self)
         self.watcher.set_key(self.settings.get("trigger"))
-        self.watcher.show_menu.connect(lambda pos: self.menu.popup(pos))
+        self.watcher.double_tap_enabled = bool(self.settings.get("double_tap"))
+        self.watcher.show_menu.connect(lambda pos: self.menu.popup(pos, fresh=self.watcher.fresh_file_drag()))
+        self.watcher.pasteboard_ready.connect(self.menu.load_drag_pasteboard)
+        self.watcher.double_tap.connect(lambda pos: self.finder_menu())
+        if IS_MAC:
+            # click-mode menus: a click in another app deactivates us -> close the menu
+            qapp.applicationStateChanged.connect(self._app_state)
         self.watcher.toggle_ring.connect(self.menu.next_ring)
         self.watcher.hide_menu.connect(self.menu.close_menu)
         self.watcher.start()
@@ -350,8 +356,39 @@ class DragShiftApp(QObject):
     def show_click_menu(self, files: list[str]):
         g = (QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()).availableGeometry()
         pos = QCursor.pos() if g.contains(QCursor.pos()) else g.center()
+        if IS_MAC:
+            from . import platform_mac
+            platform_mac.activate()          # menu-bar apps aren't active: take the clicks/keys
+            self._click_menu_at = time.monotonic()
         self.menu.popup(pos, files)
         self.menu.activateWindow()
+
+    def finder_menu(self):
+        """macOS: the trigger key was tapped twice — open the menu for the files selected in
+        Finder (or on the desktop). Nothing to hold: just click a slice."""
+        if not IS_MAC or self.menu.isVisible():
+            return
+        from . import platform_mac
+        if not platform_mac.finder_frontmost():
+            return
+        paths, err = platform_mac.finder_selection()
+        print(f"double-tap: {len(paths)} file(s) selected in Finder (err {err})", flush=True)
+        if err == platform_mac.NOT_AUTHORIZED:
+            self.toasts.error("DragShift can't see the Finder selection",
+                              "Allow it in System Settings → Privacy & Security → Automation → DragShift → Finder.")
+        elif paths:
+            self.show_click_menu(paths)
+        elif err == 0:
+            self.toasts.info("Select a file first",
+                             f"Click a file in Finder or on the desktop, then tap {self.trigger_label()} twice.")
+
+    def _app_state(self, state):
+        if state == Qt.ApplicationActive or not (self.menu.isVisible() and self.menu.click_mode):
+            return
+        if time.monotonic() - getattr(self, "_click_menu_at", 0.0) < 0.6:
+            return                           # still activating right after the menu opened
+        QTimer.singleShot(120, lambda: (QGuiApplication.applicationState() != Qt.ApplicationActive
+                                        and self.menu.click_mode and self.menu.close_menu()))
 
     def open_settings(self):
         w = SettingsWindow(self.settings)
@@ -360,6 +397,7 @@ class DragShiftApp(QObject):
 
     def _settings_changed(self):
         self.watcher.set_key(self.settings.get("trigger"))
+        self.watcher.double_tap_enabled = bool(self.settings.get("double_tap"))
         self.tray.setToolTip(f"{APP_NAME} — press {self.trigger_label()} while dragging a file")
 
     def show_welcome(self):

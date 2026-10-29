@@ -203,3 +203,112 @@ def drag_files() -> list[str]:
         return [p for p in out if os.path.exists(p)]
     except Exception:
         return []
+
+
+def drag_change_count() -> int:
+    """Bumped by macOS every time a new drag starts: tells a fresh file drag from a stale
+    pasteboard left over from an earlier one."""
+    try:
+        import AppKit
+        name = getattr(AppKit, "NSPasteboardNameDrag", None) or getattr(AppKit, "NSDragPboard", "Apple CFPasteboard drag")
+        return int(AppKit.NSPasteboard.pasteboardWithName_(name).changeCount())
+    except Exception:
+        return -1
+
+
+def drag_session_active() -> bool:
+    """A drag picture is on screen (a window at the dragging level owned by another app).
+    Trackpads (tap-to-drag, three-finger drag, drag lock) can report "no button held" in
+    the middle of a drag; the drag picture is the reliable sign that it's still going."""
+    if not OK:
+        return False
+    try:
+        level = Quartz.CGWindowLevelForKey(Quartz.kCGDraggingWindowLevelKey)
+        infos = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID) or []
+        me = os.getpid()
+        for i in infos:
+            if int(i.get("kCGWindowOwnerPID", 0)) == me:
+                continue
+            if str(i.get("kCGWindowOwnerName", "")) in ("Window Server", "WindowServer"):
+                continue
+            layer = int(i.get("kCGWindowLayer", 0))
+            if level <= layer < level + 100:
+                b = i.get("kCGWindowBounds", {}) or {}
+                if float(b.get("Width", 0)) < 1200 and float(b.get("Height", 0)) < 1200:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+ALL_MODS = SHIFT | CONTROL | OPTION | COMMAND
+
+
+def other_modifiers_down(name: str) -> bool:
+    """Any modifier other than the trigger key held (e.g. Cmd+Shift shortcuts)."""
+    if not OK:
+        return False
+    try:
+        return bool(AppKit.NSEvent.modifierFlags() & ALL_MODS & ~KEY_FLAGS.get(name, SHIFT))
+    except Exception:
+        return False
+
+
+def seconds_since_key_typed() -> float:
+    """Seconds since any ordinary key was pressed (no permission needed). Used to ignore
+    Shift taps that are really capital letters being typed."""
+    if not OK:
+        return 1e9
+    try:
+        return float(Quartz.CGEventSourceSecondsSinceLastEventType(
+            Quartz.kCGEventSourceStateCombinedSessionState, Quartz.kCGEventKeyDown))
+    except Exception:
+        return 1e9
+
+
+def double_click_interval() -> float:
+    try:
+        return float(AppKit.NSEvent.doubleClickInterval())
+    except Exception:
+        return 0.5
+
+
+def finder_frontmost() -> bool:
+    """Finder (or the desktop, which belongs to Finder) is the active app."""
+    if not OK:
+        return False
+    try:
+        app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+        return app is not None and str(app.bundleIdentifier()) == "com.apple.finder"
+    except Exception:
+        return False
+
+
+_SELECTION_SCRIPT = """
+tell application "Finder"
+    set out to ""
+    repeat with f in (get selection as alias list)
+        set out to out & POSIX path of f & linefeed
+    end repeat
+    return out
+end tell
+"""
+
+NOT_AUTHORIZED = -1743   # errAEEventNotPermitted: the user said no to "control Finder"
+
+
+def finder_selection() -> tuple[list[str], int]:
+    """Files selected in Finder (or on the desktop) -> (paths, error). Asks once for the
+    Automation permission ("DragShift wants to control Finder")."""
+    try:
+        from Foundation import NSAppleScript
+        script = NSAppleScript.alloc().initWithSource_(_SELECTION_SCRIPT)
+        res, err = script.executeAndReturnError_(None)
+        if err is not None or res is None:
+            code = int(err.get("NSAppleScriptErrorNumber", -1)) if err is not None else -1
+            return [], code
+        text = str(res.stringValue() or "")
+        paths = [p.rstrip("/") for p in text.splitlines() if p.strip()]
+        return [p for p in paths if os.path.isfile(p)], 0
+    except Exception:
+        return [], -1
