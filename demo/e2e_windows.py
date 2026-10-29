@@ -599,11 +599,17 @@ def main():
         app.kill()
         wk.copy_app_log(OUT / "app_log.txt")
         try:  # the drag picture must never be baked into the glass
-            log_text = (OUT / "app_log.txt").read_text(encoding="utf-8", errors="replace")
-            n = log_text.count("drag image(s) during capture")
+            radial_src = (wk.ROOT / "dragshift" / "radial.py").read_text(encoding="utf-8", errors="replace")
+            if not any(k in radial_src for k in ("grab_screen", "grabWindow", "hidden_drag_images")):
+                # dark theme: the menu paints a solid background and never captures the screen,
+                # so there is no backdrop the drag picture could end up in
+                status, detail = "PASS", "menu doesn't capture the screen (solid dark background)"
+            else:
+                log_text = (OUT / "app_log.txt").read_text(encoding="utf-8", errors="replace")
+                n = log_text.count("drag image(s) during capture")
+                status, detail = ("PASS" if n > 0 else "FAIL"), f"hidden during {n} menu captures"
             RESULTS.append({"name": "Drag picture kept out of the glass", "where": "all",
-                            "status": "PASS" if n > 0 else "FAIL",
-                            "detail": f"hidden during {n} menu captures", "seconds": 0, "t": 0})
+                            "status": status, "detail": detail, "seconds": 0, "t": 0})
         except Exception as e:
             wk.log("drag image check failed", e)
         passed = sum(r["status"] == "PASS" for r in RESULTS)
