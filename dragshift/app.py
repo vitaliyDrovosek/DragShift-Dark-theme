@@ -526,6 +526,10 @@ def selftest() -> int:
                       tools.ResizeWindow([str(src)], n), tools.ProtectWindow(str(pdf), n)):
                 w.close()
             ToastStack().info("ok", "ok").dismiss()
+            # dismiss() uses deleteLater(): run those deletions now, while Qt is still up,
+            # instead of leaving them to interpreter shutdown (that crashed on exit)
+            from PySide6.QtCore import QCoreApplication, QEvent
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             check_text_renders()
         print("SELFTEST OK")
         return 0
