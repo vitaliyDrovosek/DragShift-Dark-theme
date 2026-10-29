@@ -1,10 +1,10 @@
-"""Frameless liquid-glass window + an image view used by all editors."""
+"""Frameless dark window + an image view used by all editors."""
 from __future__ import annotations
 
 import sys
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QBrush
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSizeGrip, QVBoxLayout,
                                QWidget)
 
@@ -14,7 +14,7 @@ IS_WIN = sys.platform == "win32"
 
 
 class GlassWindow(QWidget):
-    """Top-level glass window with its own title bar. Put content in `self.body`."""
+    """Top-level dark window with its own title bar. Put content in `self.body`."""
 
     def __init__(self, title: str, parent=None, size=(760, 640)):
         super().__init__(parent)
@@ -28,8 +28,6 @@ class GlassWindow(QWidget):
         self._drag: QPoint | None = None
         self._acrylic = False
         self.radius = 18
-        self.liquid = glass.LiquidBacking(self, self.radius)
-        self.liquid.changed.connect(self.update)
         self._fade = 0.0
 
         outer = QVBoxLayout(self)
@@ -62,17 +60,16 @@ class GlassWindow(QWidget):
 
     # ---- window behaviour
     def present(self):
-        """Centre on the cursor's screen, capture what's behind, then show."""
+        """Centre on the cursor's screen, then show."""
         from PySide6.QtGui import QCursor, QGuiApplication
         scr = (QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()).availableGeometry()
         self.resize(min(self.width(), scr.width() - 40), min(self.height(), scr.height() - 40))
         self.move(scr.center() - self.rect().center())
         self._placed = True
-        self.liquid.capture_at(self.frameGeometry())
         self.show()
         if sys.platform == "darwin":
             from . import platform_mac
-            platform_mac.activate()   # menu-bar apps aren't brought forward automatically
+            platform_mac.activate()
         self.raise_()
         self.activateWindow()
 
@@ -82,29 +79,14 @@ class GlassWindow(QWidget):
             scr = self.screen().availableGeometry()
             self.move(scr.center() - self.rect().center())
             self._placed = True
-            self.liquid.capture_at(self.frameGeometry())
-        self.liquid.excluded = glass.exclude_from_capture(int(self.winId()))
+        self.liquid = None
 
     def moveEvent(self, e):
         super().moveEvent(e)
-        self._stale()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         glass.apply_shape(self, glass.rounded_rect_path(QRectF(self.rect()), self.radius))
-        self._stale()
-
-    def _stale(self):
-        if not self.isVisible():
-            return
-        if self.liquid.excluded:
-            self.liquid.moved()
-        elif self.liquid.image is not None:
-            # can't re-capture behind ourselves: switch to the system blur instead
-            self.liquid.image = None
-            if IS_WIN and not self._acrylic:
-                self._acrylic = glass.enable_acrylic(int(self.winId()))
-            self.update()
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:
@@ -116,7 +98,7 @@ class GlassWindow(QWidget):
         if e.button() == Qt.LeftButton and e.position().y() < 40:
             handle = self.windowHandle()
             if handle is not None and handle.startSystemMove():
-                return  # native move: snapping etc.
+                return
             self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, e):
@@ -131,14 +113,13 @@ class GlassWindow(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         path = glass.rounded_rect_path(r, self.radius)
-        img = self.liquid.image
-        if img is not None and not img.isNull() and img.size() == self.size():
-            p.drawImage(0, 0, img)
-            # large surfaces need more opacity than a menu so content stays readable
-            glass.paint_glass(p, path, tint=QColor(22, 17, 34, 150), rainbow_alpha=150)
-        else:
-            tint = QColor(30, 24, 44, 125) if self._acrylic else QColor(38, 30, 56, 228)
-            glass.paint_glass(p, path, tint=tint, rainbow_alpha=150)
+        
+        # Темный фон окна (без стекла)
+        p.setBrush(QBrush(QColor(30, 30, 30)))
+        p.setPen(Qt.NoPen)
+        p.drawPath(path)
+        
+        p.end() # <--- ОБЯЗАТЕЛЬНО
 
 
 class ImageView(QWidget):
@@ -198,6 +179,8 @@ class ImageView(QWidget):
         p.fillRect(t, QColor(255, 255, 255, 30))
         p.drawPixmap(t, self.pix, QRectF(self.pix.rect()))
         self.paint_overlay(p, t)
+        
+        p.end() # <--- ОБЯЗАТЕЛЬНО
 
     def paint_overlay(self, p: QPainter, t: QRectF):
         pass

@@ -1,4 +1,4 @@
-"""DragShift: Shift+drag any file to convert or edit it from a radial liquid-glass menu."""
+"""DragShift: Shift+drag any file to convert or edit it from a radial menu."""
 from __future__ import annotations
 
 import json
@@ -120,7 +120,7 @@ def make_icon() -> QIcon:
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(glass.iridescent_pen(QPointF(32, 32), 7, 255))
+    p.setPen(QPen(QColor(255, 255, 255), 7))
     p.drawEllipse(QPointF(32, 32), 24, 24)
     p.end()
     return QIcon(pm)
@@ -159,6 +159,7 @@ class DragShiftApp(QObject):
 
         self.tray = QSystemTrayIcon(make_tray_icon(), self)
         self.tray.setToolTip(f"{APP_NAME} — press {self.trigger_label()} while dragging a file")
+        
         m = QMenu()
         m.setStyleSheet(glass.QSS)
         self.act_enabled = QAction("Enabled", m, checkable=True, checked=True)
@@ -197,7 +198,7 @@ class DragShiftApp(QObject):
             try:
                 data = json.loads(buf.decode("utf-8"))
             except Exception:
-                return  # incomplete: wait for more
+                return
             done["v"] = True
             files = [f for f in data.get("files", []) if os.path.exists(f)]
             print(f"IPC: {len(files)} file(s) handed over", flush=True)
@@ -209,14 +210,12 @@ class DragShiftApp(QObject):
             sock.disconnectFromServer()
             sock.deleteLater()
 
-        # Windows pipes: the sender may already be gone, so read on every signal + a fallback timer
         sock.readyRead.connect(consume)
         sock.disconnected.connect(consume)
         for ms in (0, 50, 200, 600):
             QTimer.singleShot(ms, consume)
 
     def queue_files(self, files: list[str]):
-        """Explorer's right-click menu launches once per file: gather them, then show one menu."""
         for f in files:
             if f not in self._pending:
                 self._pending.append(f)
@@ -308,7 +307,6 @@ class DragShiftApp(QObject):
             w.show()
 
     def submit(self, action: str, srcs: list, fn, working: str = "Working…", extra: str = ""):
-        """Run in the background. A spinner card appears only if it takes > 150 ms."""
         state = {"card": None, "finished": False}
         names = Path(srcs[0]).name if len(srcs) == 1 else f"{len(srcs)} files"
 
@@ -337,12 +335,10 @@ class DragShiftApp(QObject):
         self.pool.start(keep(job))
 
     def notify(self, action: str, srcs: list, outs: list, extra: str = ""):
-        """Called by tool windows after they save."""
         self.toasts.new().done(report.summarize(action, srcs, outs, extra))
 
     # ------------------------------------------------------------ misc
     def _tray_click(self, reason):
-        # macOS: a click on the menu-bar icon shows the menu; Windows: click opens a file
         if not IS_MAC and reason in (QSystemTrayIcon.DoubleClick, QSystemTrayIcon.Trigger):
             self.open_dialog()
 
@@ -371,8 +367,6 @@ class DragShiftApp(QObject):
 
 
 class DragShiftQApplication(QApplication):
-    """macOS delivers files from Finder's "Open With", the Dock and `open -a` as FileOpen
-    events (not argv)."""
     file_opened = Signal(str)
 
     def __init__(self, argv):
@@ -391,8 +385,6 @@ class DragShiftQApplication(QApplication):
 
 
 def mac_setup(qapp):
-    # fonts: util.ui_family picks a real installed family. (Substituting the private
-    # ".AppleSystemUIFont" made labels draw nothing on macOS 26.)
     try:
         from . import platform_mac
         platform_mac.become_accessory()
@@ -413,7 +405,6 @@ def send_to_running(payload: dict) -> bool:
 
 
 def setup_logging():
-    """Errors go to %LOCALAPPDATA%\\DragShift\\log.txt (pythonw / the .exe have no console)."""
     import faulthandler
     if IS_MAC:
         base = Path.home() / "Library" / "Logs" / "DragShift"
@@ -442,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass
     if IS_WIN:
-        try:  # crisp taskbar/tray icon grouping
+        try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DragShift.App")
         except Exception:
@@ -459,14 +450,13 @@ def main(argv: list[str] | None = None) -> int:
     if "--selftest" in argv:
         return selftest()
     files = [os.path.abspath(a) for a in argv[1:] if not a.startswith("-") and os.path.exists(a)]
-    # already running? hand over and exit (instant: no second UI start-up)
     if send_to_running({"files": files} if files else {"show": "--quiet" not in argv}):
         return 0
     app = DragShiftApp(qapp)
     qapp.file_opened.connect(lambda f: app.queue_files([f]))
     if qapp.early_files:
         app.queue_files(list(qapp.early_files))
-    if files:  # e.g. "Send to → DragShift" or drag onto the .exe
+    if files:
         QTimer.singleShot(120, lambda: app.queue_files(files))
     elif not app.settings.get("welcomed"):
         QTimer.singleShot(300, app.show_welcome)
@@ -477,7 +467,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def check_text_renders():
-    """Labels must really draw: paint text with the UI fonts and count the inked pixels."""
     from PySide6.QtGui import QImage, QPainter, QColor
     from .util import ui_font, ui_family
     for display in (True, False):
@@ -495,7 +484,6 @@ def check_text_renders():
 
 
 def selftest() -> int:
-    """Used by CI on the frozen .exe: exercise every library and build the UI, then exit."""
     import tempfile
     from PIL import Image
     try:
