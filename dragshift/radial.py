@@ -158,6 +158,13 @@ class RadialMenu(QWidget):
         self.hub_armed = False
         self.click_mode = paths is not None
         early = []
+        if paths is None and sys.platform == "darwin":
+            # macOS only reports a drag to a window once the cursor moves over it:
+            # read the drag pasteboard so the slices show the moment the menu opens
+            from . import platform_mac
+            early = platform_mac.drag_files()
+            if early:
+                print(f"menu: {len(early)} file(s) from the drag pasteboard", flush=True)
         if paths is not None:
             self._load(paths)
         elif early:

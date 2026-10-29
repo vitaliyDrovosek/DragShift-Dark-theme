@@ -384,10 +384,23 @@ class DragShiftQApplication(QApplication):
         return super().event(e)
 
 
+def dark_setup(qapp):
+    """Dark theme for the parts Qt draws itself (dialogs, menus, message boxes)."""
+    try:
+        qapp.styleHints().setColorScheme(Qt.ColorScheme.Dark)   # Qt 6.8+
+    except Exception:
+        pass
+    try:
+        qapp.setPalette(glass.dark_palette())
+    except Exception:
+        pass
+
+
 def mac_setup(qapp):
     try:
         from . import platform_mac
         platform_mac.become_accessory()
+        platform_mac.force_dark_appearance()
     except Exception:
         pass
 
@@ -440,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     qapp = DragShiftQApplication(argv)
+    dark_setup(qapp)
     if IS_MAC:
         mac_setup(qapp)
     qapp.setApplicationName(APP_NAME)

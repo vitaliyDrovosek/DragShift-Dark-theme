@@ -1,13 +1,13 @@
 #!/bin/bash
-# DragShift installer for macOS.
-#   curl -fsSL https://raw.githubusercontent.com/llamaboi55/DragShift/main/install-mac.sh | bash
+# DragShift (Dark theme) installer for macOS.
+#   curl -fsSL https://raw.githubusercontent.com/vitaliyDrovosek/DragShift-Dark-theme/main/install-mac.sh | bash
 # Downloads the right build for this Mac from the latest GitHub release, installs it to
 # /Applications and opens it. Files fetched by curl aren't marked "downloaded from the
 # internet", so macOS doesn't show the "could not verify" warning. Read it first if you like —
 # it's short.
 set -euo pipefail
 
-REPO="llamaboi55/DragShift"
+REPO="vitaliyDrovosek/DragShift-Dark-theme"
 case "$(uname -m)" in
   arm64) ASSET="DragShift-mac-apple-silicon.dmg" ;;
   *)     ASSET="DragShift-mac-intel.dmg" ;;

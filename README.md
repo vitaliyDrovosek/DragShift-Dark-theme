@@ -1,4 +1,6 @@
-# DragShift
+# DragShift — Dark theme
+
+A dark fork of [DragShift](https://github.com/llamaboi55/DragShift): the liquid glass is replaced by a solid dark look (menu, notifications, windows). On **macOS** the whole app is dark — including the menu-bar menu, file pickers and alerts — even when the system is in Light mode, and no Screen Recording permission is needed.
 
 Convert and edit files on **Windows, Mac and Linux** with a liquid-glass radial menu. Start dragging any file, press **Shift**, and drop it on a slice.
 
@@ -14,7 +16,7 @@ From the [latest release](../../releases/latest):
 **Mac (easiest, no security warning):** paste this into Terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/llamaboi55/DragShift/main/install-mac.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vitaliyDrovosek/DragShift-Dark-theme/main/install-mac.sh | bash
 ```
 
 It picks the right build for your Mac, installs it to Applications and opens it ([see what it does](install-mac.sh)). Run the same line again to update.

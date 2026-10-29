@@ -53,6 +53,22 @@ def become_accessory():
             AppKit.NSApplicationActivationPolicyAccessory)
 
 
+def force_dark_appearance() -> bool:
+    """Dark theme: make every native part of the app dark too (menu-bar menu, file
+    pickers, alerts, tooltips, scroll bars), even when macOS itself is in Light mode."""
+    if not OK:
+        return False
+    try:
+        name = getattr(AppKit, "NSAppearanceNameDarkAqua", "NSAppearanceNameDarkAqua")
+        appearance = AppKit.NSAppearance.appearanceNamed_(name)
+        if appearance is None:          # macOS 10.13 and older: no dark appearance
+            return False
+        AppKit.NSApplication.sharedApplication().setAppearance_(appearance)
+        return True
+    except Exception:
+        return False
+
+
 def activate():
     """Bring our windows to the front (accessory apps aren't activated automatically)."""
     if OK:

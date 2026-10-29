@@ -96,6 +96,7 @@ jobs:
       # again so the release keeps publishing exactly what it published before.
       - name: Upload unsigned artifact for SignPath
         id: upload-unsigned-artifact
+        if: github.repository == 'llamaboi55/DragShift'
         uses: actions/upload-artifact@v4
         with:
           name: unsigned
@@ -104,6 +105,7 @@ jobs:
             dist/DragShift-Setup.exe
 
       - name: Submit test signing request to SignPath
+        if: github.repository == 'llamaboi55/DragShift'
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
@@ -318,7 +320,7 @@ jobs:
 
   publish:
     needs: [windows, macos, linux]
-    if: always() && github.event_name == 'push' && needs.windows.result == 'success'
+    if: always() && github.event_name == 'push' && (needs.windows.result == 'success' || needs.macos.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -341,7 +343,7 @@ jobs:
             - **DragShift.exe** — portable.
 
             **Mac** (macOS 11+). Easiest, with no security warning, is to paste into Terminal:
-            `curl -fsSL https://raw.githubusercontent.com/llamaboi55/DragShift/main/install-mac.sh | bash`
+            `curl -fsSL https://raw.githubusercontent.com/vitaliyDrovosek/DragShift-Dark-theme/main/install-mac.sh | bash`
 
             Or download:
             - **DragShift-mac-apple-silicon.dmg** — M1/M2/M3/M4 Macs.

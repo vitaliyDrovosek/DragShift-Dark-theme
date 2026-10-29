@@ -1,4 +1,4 @@
-"""Glass utilities: image conversion, Windows acrylic, and the dark QSS stylesheet."""
+"""Theme utilities: image conversion, window shapes, and the dark QSS stylesheet."""
 from __future__ import annotations
 
 import ctypes
@@ -55,17 +55,17 @@ QPushButton:pressed {
     background-color: #1a1a1a; 
 }
 QPushButton:checked {
-    background-color: #0078d4;
-    border: 1px solid #0078d4;
+    background-color: @ACCENT@;
+    border: 1px solid @ACCENT@;
 }
 QPushButton#primary {
-    background-color: #0078d4;
-    border: 1px solid #0078d4;
+    background-color: @ACCENT@;
+    border: 1px solid @ACCENT@;
     font-weight: 600; 
     padding: 7px 20px;
 }
 QPushButton#primary:hover { 
-    background-color: #1084d8;
+    background-color: @ACCENT_HOVER@;
 }
 QPushButton#chrome { 
     background: transparent; 
@@ -74,7 +74,7 @@ QPushButton#chrome {
     border-radius: 4px; 
 }
 QPushButton#chrome:hover { 
-    background: #e81123; 
+    background: @CLOSE@; 
     color: white;
 }
 
@@ -85,7 +85,7 @@ QSlider::groove:horizontal {
     border-radius: 2px; 
 }
 QSlider::sub-page:horizontal {
-    background: #0078d4; 
+    background: @ACCENT@; 
     border-radius: 2px;
 }
 QSlider::handle:horizontal {
@@ -103,10 +103,10 @@ QSpinBox, QLineEdit, QComboBox {
     border: 1px solid #3c3c3c;
     border-radius: 4px; 
     padding: 4px 8px; 
-    selection-background-color: #0078d4;
+    selection-background-color: @ACCENT@;
 }
 QLineEdit:focus, QSpinBox:focus { 
-    border: 1px solid #0078d4; 
+    border: 1px solid @ACCENT@; 
 }
 
 /* --- БЛОКИ И КАРТОЧКИ --- */
@@ -158,8 +158,8 @@ QCheckBox::indicator {
     background: #2d2d2d; 
 }
 QCheckBox::indicator:checked { 
-    background-color: #0078d4; 
-    border: 1px solid #0078d4; 
+    background-color: @ACCENT@; 
+    border: 1px solid @ACCENT@; 
 }
 
 /* --- ПРОКРУТКА --- */
@@ -203,10 +203,36 @@ QMenu::item:selected {
 """
 
 
+# Accent colours: macOS gets its own dark-mode system colours, Windows/Linux keep Fluent blue.
+if sys.platform == "darwin":
+    ACCENT, ACCENT_HOVER, CLOSE = "#0a84ff", "#409cff", "#ff453a"   # systemBlue / systemRed (dark)
+else:
+    ACCENT, ACCENT_HOVER, CLOSE = "#0078d4", "#1084d8", "#e81123"
+
+
 def qss() -> str:
     """The stylesheet, with a font family that is really installed (see util.ui_family)."""
     from .util import ui_family
-    return _QSS.replace("@FONT@", ui_family(False))
+    return (_QSS.replace("@FONT@", ui_family(False)).replace("@ACCENT_HOVER@", ACCENT_HOVER)
+            .replace("@ACCENT@", ACCENT).replace("@CLOSE@", CLOSE))
+
+
+def dark_palette():
+    """App-wide dark palette, so dialogs and menus Qt draws itself match the theme."""
+    from PySide6.QtGui import QPalette
+    pal = QPalette()
+    base, window, text, dim = QColor(30, 30, 30), QColor(30, 30, 30), QColor(255, 255, 255), QColor(150, 150, 150)
+    for role, col in ((QPalette.Window, window), (QPalette.WindowText, text), (QPalette.Base, QColor(37, 37, 37)),
+                      (QPalette.AlternateBase, QColor(45, 45, 45)), (QPalette.Text, text),
+                      (QPalette.Button, QColor(45, 45, 45)), (QPalette.ButtonText, text),
+                      (QPalette.ToolTipBase, QColor(45, 45, 45)), (QPalette.ToolTipText, text),
+                      (QPalette.PlaceholderText, dim), (QPalette.BrightText, QColor(CLOSE)),
+                      (QPalette.Highlight, QColor(ACCENT)), (QPalette.HighlightedText, text),
+                      (QPalette.Link, QColor(ACCENT_HOVER))):
+        pal.setColor(role, col)
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        pal.setColor(QPalette.Disabled, role, dim)
+    return pal
 
 
 def __getattr__(name):        # keep `glass.QSS` working

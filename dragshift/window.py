@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap, QBrush
+from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSizeGrip, QVBoxLayout,
                                QWidget)
 
@@ -116,7 +116,7 @@ class GlassWindow(QWidget):
         
         # Темный фон окна (без стекла)
         p.setBrush(QBrush(QColor(30, 30, 30)))
-        p.setPen(Qt.NoPen)
+        p.setPen(QPen(QColor(60, 60, 60), 1))
         p.drawPath(path)
         
         p.end() # <--- ОБЯЗАТЕЛЬНО
