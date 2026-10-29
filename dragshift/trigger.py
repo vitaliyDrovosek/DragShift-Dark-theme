@@ -65,10 +65,13 @@ class DragShiftWatcher(QObject):
     pasteboard_ready = Signal()      # macOS: the file drag's pasteboard became readable
     double_tap = Signal(QPoint)      # macOS: trigger key tapped twice (Finder selection menu)
 
-    def __init__(self, menu_visible, menu_got_drag, parent=None):
+    def __init__(self, menu_visible, menu_got_drag, parent=None, click_menu_visible=None):
         super().__init__(parent)
         self.menu_visible = menu_visible
         self.menu_got_drag = menu_got_drag
+        # a click menu (double-tap on a Finder selection, Open With, tray) is open: the
+        # trigger key flips Convert ⇄ Tools there too, but nothing else is managed here
+        self.click_menu_visible = click_menu_visible or (lambda: False)
         self.enabled = True
         self.double_tap_enabled = True
         self.vk = VK_SHIFT
@@ -132,14 +135,33 @@ class DragShiftWatcher(QObject):
             self._alive_cache = (now, alive)
         return alive
 
+    def _other_mods(self) -> bool:
+        """macOS: another modifier is held too (Cmd+Shift... shortcuts are not a tap)."""
+        try:
+            return bool(self._darwin is not None and self._darwin.other_modifiers_down(self.key_name))
+        except Exception:
+            return False
+
     # ------------------------------------------------------------ polling
     def _tick(self):
         lbtn, shift, esc = self._state()
         pos = QCursor.pos()
         now = time.monotonic()
 
+        if self.click_menu_visible():
+            self._tap.reset()
+            self._down_at = None
+            if shift and not self._shift_was and not lbtn and not self._other_mods():
+                self.toggle_ring.emit()           # tap the key to flip Convert ⇄ Tools
+            self._shift_was = shift
+            return
+
         if self.menu_visible():
             self._tap.reset()
+            # tap Shift again to flip Convert ⇄ Tools. Checked whatever the button reads:
+            # trackpads (three-finger drag, tap-to-drag) often report "no button" mid-drag
+            if shift and not self._shift_was and not esc:
+                self.toggle_ring.emit()
             if esc:
                 QTimer.singleShot(120, self.hide_menu.emit)
             elif not lbtn:
@@ -153,9 +175,7 @@ class DragShiftWatcher(QObject):
                     QTimer.singleShot(120, self.hide_menu.emit)
             else:
                 self._up_since = None
-                if shift and not self._shift_was and self.menu_got_drag():
-                    self.toggle_ring.emit()       # tap Shift again to flip Convert ⇄ Tools
-                elif not self.menu_got_drag() and (pos - self._shown_at).manhattanLength() > 6:
+                if not self.menu_got_drag() and (pos - self._shown_at).manhattanLength() > 6:
                     # the cursor is moving over us but no file drag arrived: it's a window
                     # move or text selection, so get out of the way
                     self._idle_ticks += 1

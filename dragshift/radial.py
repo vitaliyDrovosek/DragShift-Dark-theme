@@ -124,6 +124,7 @@ class RadialMenu(QWidget):
         self._serial = 0
         self.got_drag = False
         self.fresh_drag = False   # macOS: files read from this drag's pasteboard
+        self.key_flips_ring = True  # False when the global key watcher flips the rings
         self.hub_armed = False
         self.click_mode = False
         self._t = 1.0
@@ -391,7 +392,7 @@ class RadialMenu(QWidget):
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:
             self.close_menu()
-        elif e.key() in (Qt.Key_Tab, Qt.Key_Shift):
+        elif e.key() == Qt.Key_Tab or (e.key() == Qt.Key_Shift and self.key_flips_ring):
             self.next_ring()
 
     def leaveEvent(self, e):

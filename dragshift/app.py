@@ -142,7 +142,8 @@ class DragShiftApp(QObject):
         # the watcher only manages menus it opened (drag mode); click-mode menus (tray, right-click,
         # Send To) must not be closed just because no mouse button is held
         self.watcher = DragShiftWatcher(lambda: self.menu.isVisible() and not self.menu.click_mode,
-                                        lambda: self.menu.got_drag or self.menu.fresh_drag, self)
+                                        lambda: self.menu.got_drag or self.menu.fresh_drag, self,
+                                        click_menu_visible=lambda: self.menu.isVisible() and self.menu.click_mode)
         self.watcher.set_key(self.settings.get("trigger"))
         self.watcher.double_tap_enabled = bool(self.settings.get("double_tap"))
         self.watcher.show_menu.connect(lambda pos: self.menu.popup(pos, fresh=self.watcher.fresh_file_drag()))
@@ -154,6 +155,9 @@ class DragShiftApp(QObject):
         self.watcher.toggle_ring.connect(self.menu.next_ring)
         self.watcher.hide_menu.connect(self.menu.close_menu)
         self.watcher.start()
+        # the watcher reads the key globally (the menu never takes keyboard focus): let it
+        # flip the rings so a Shift tap isn't counted twice
+        self.menu.key_flips_ring = not self.watcher.timer.isActive()
 
         # files handed over by "Send to", the right-click menu, or a second launch
         self._pending: list[str] = []

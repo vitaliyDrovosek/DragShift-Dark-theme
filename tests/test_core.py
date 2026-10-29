@@ -224,3 +224,32 @@ def test_double_tap_shift_emits_and_typing_does_not(monkeypatch):
     fake.typed_ago = 0.05                                # a capital letter was just typed
     tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
     assert ev["tap"] == 1
+
+
+def test_shift_tap_flips_ring_even_when_trackpad_reads_no_button(monkeypatch):
+    from PySide6.QtCore import QPoint
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch, drag_alive=True)
+    flips = []
+    w.toggle_ring.connect(lambda: flips.append(1))
+    tick(btn=True); pos["p"] = QPoint(130, 100); tick(btn=True, shift=True)
+    assert ev["show"] == 1
+    tick(btn=False, shift=True)                          # three-finger drag: "no button"
+    tick(btn=False, shift=False)                         # release Shift ...
+    tick(btn=False, shift=True)                          # ... and tap it again
+    assert len(flips) == 1 and ev["hide"] == 0
+    tick(btn=True, shift=False); tick(btn=True, shift=True)   # with a mouse it works too
+    assert len(flips) == 2
+
+
+def test_shift_tap_flips_ring_in_click_menu_without_reopening(monkeypatch):
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    click = {"on": False}
+    w.click_menu_visible = lambda: click["on"]
+    flips = []
+    w.toggle_ring.connect(lambda: flips.append(1))
+    tick(); tick(dt=0.1, shift=True); tick(dt=0.08, shift=False); tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    assert ev["tap"] == 1                                # double tap opened the Finder menu
+    click["on"] = True
+    tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    assert len(flips) == 2 and ev["tap"] == 1            # each tap flips, no second menu
