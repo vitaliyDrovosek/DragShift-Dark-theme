@@ -63,7 +63,8 @@ class DragShiftWatcher(QObject):
     toggle_ring = Signal()
     hide_menu = Signal()
     pasteboard_ready = Signal()      # macOS: the file drag's pasteboard became readable
-    double_tap = Signal(QPoint)      # macOS: trigger key tapped twice (Finder selection menu)
+    double_tap = Signal(QPoint)      # trigger key tapped twice (Finder / Explorer selection menu)
+    click_menu_mouse_down = Signal(QPoint)   # mouse pressed while a click menu is open
 
     def __init__(self, menu_visible, menu_got_drag, parent=None, click_menu_visible=None):
         super().__init__(parent)
@@ -78,6 +79,8 @@ class DragShiftWatcher(QObject):
         self.key_name = "shift"
         self._down_at: QPoint | None = None
         self._shift_was = False
+        self._lbtn_was = False
+        self._esc_was = False
         self._fired = False
         self._idle_ticks = 0
         self._shown_at = QPoint()
@@ -88,10 +91,15 @@ class DragShiftWatcher(QObject):
         self._user32 = ctypes.windll.user32 if sys.platform == "win32" else None
         self._mac = None
         self._darwin = None          # platform_mac when on macOS
+        self._keys = None            # other_modifiers_down / seconds_since_key_typed
         if sys.platform == "darwin":
             from . import platform_mac
             self._mac = platform_mac if platform_mac.OK else None
             self._darwin = self._mac
+            self._keys = self._mac
+        elif sys.platform == "win32":
+            from . import platform_win
+            self._keys = platform_win.KeyActivity()
         elif sys.platform.startswith("linux"):
             from . import platform_linux
             # same interface as platform_mac: left_button_down / key_down / escape_down
@@ -138,7 +146,7 @@ class DragShiftWatcher(QObject):
     def _other_mods(self) -> bool:
         """macOS: another modifier is held too (Cmd+Shift... shortcuts are not a tap)."""
         try:
-            return bool(self._darwin is not None and self._darwin.other_modifiers_down(self.key_name))
+            return bool(self._keys is not None and self._keys.other_modifiers_down(self.key_name))
         except Exception:
             return False
 
@@ -153,7 +161,11 @@ class DragShiftWatcher(QObject):
             self._down_at = None
             if shift and not self._shift_was and not lbtn and not self._other_mods():
                 self.toggle_ring.emit()           # tap the key to flip Convert ⇄ Tools
-            self._shift_was = shift
+            if lbtn and not self._lbtn_was:
+                self.click_menu_mouse_down.emit(pos)
+            if esc and not self._esc_was:
+                self.hide_menu.emit()
+            self._shift_was, self._lbtn_was, self._esc_was = shift, lbtn, esc
             return
 
         if self.menu_visible():
@@ -200,12 +212,14 @@ class DragShiftWatcher(QObject):
             else:
                 self._down_at = None
                 self._fired = False
-            if self._darwin is not None and self.enabled and self.double_tap_enabled:
-                m = self._darwin
+            if self._keys is not None and self.enabled and self.double_tap_enabled:
+                m = self._keys
+                if hasattr(m, "poll") and (shift or self._tap.seq_start is not None):
+                    m.poll(now)                   # Windows: notice keys typed during the taps
                 clean = not lbtn and not m.other_modifiers_down(self.key_name)
                 if clean and self._tap.seq_start is not None:
                     # a letter typed during the taps: that was Shift for capitals, not a gesture
                     clean = m.seconds_since_key_typed() > now - self._tap.seq_start + 0.02
                 if self._tap.update(shift, now, clean):
                     self.double_tap.emit(pos)
-        self._shift_was = shift
+        self._shift_was, self._lbtn_was, self._esc_was = shift, lbtn, esc

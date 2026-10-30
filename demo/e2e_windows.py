@@ -481,6 +481,65 @@ def v_combined(outs, srcs):
 
 
 # ------------------------------------------------------------------ IPC / Send To path
+def tap_key(key="shift", hold=0.08):
+    pyautogui.keyDown(key)
+    time.sleep(hold)
+    pyautogui.keyUp(key)
+
+
+def run_tap(name: str, where: str, file: str, ring: str, label: str, verify):
+    """Select a file (no dragging), tap Shift twice -> menu at the cursor -> (tap Shift to
+    switch rings) -> click a slice."""
+    folder = EXP if where == "explorer" else DESK
+    srcs = [str(folder / file)]
+    restore_sources(folder)
+    before = snapshot(folder)
+    t0 = time.time()
+    status, msg = "PASS", ""
+    try:
+        ring_i, idx, n = ring_index(srcs, ring, label)
+        container = EX if where == "explorer" else wk.desktop_view()
+        if where == "desktop":
+            pyautogui.hotkey("win", "d") if not DESKTOP_SHOWN[0] else None
+            DESKTOP_SHOWN[0] = True
+        elif DESKTOP_SHOWN[0]:
+            EX.set_focus()
+            DESKTOP_SHOWN[0] = False
+            time.sleep(0.6)
+        xy = wk.item_center(container, file)
+        wk.glide(*xy, 0.4)
+        pyautogui.click()
+        time.sleep(0.6)
+        tap_key()
+        time.sleep(0.15)
+        tap_key()
+        time.sleep(1.2)                       # Explorer is asked for the selection, menu opens
+        c = wk.menu_center(pyautogui.position())
+        if ring_i == 1:
+            tap_key()                         # Shift flips Convert / Tools in the click menu
+            time.sleep(0.5)
+        wk.glide(*wk.petal_xy(c, n, idx), 0.4)
+        time.sleep(0.35)
+        wk.shot(OUT / "shots" / f"{len(RESULTS) + 1:02d}_{safe(name)}_menu.png")
+        pyautogui.click()
+        outs = new_files(folder, before)
+        if not outs:
+            raise AssertionError("no output file appeared")
+        msg = verify(outs, srcs) or ", ".join(o.name for o in outs[:3])
+    except Exception as e:
+        status, msg = "FAIL", f"{type(e).__name__}: {e}"
+        wk.log(traceback.format_exc())
+        wk.shot(OUT / "shots" / f"{len(RESULTS) + 1:02d}_FAIL_{safe(name)}.png")
+        pyautogui.press("esc")
+        time.sleep(0.5)
+    dt = time.time() - t0
+    RESULTS.append({"name": name, "where": where, "status": status, "detail": msg, "seconds": round(dt, 1),
+                    "t": round(time.time() - wk.T0, 1)})
+    wk.log(f"{status:4} {where:8} {name:34} {dt:5.1f}s  {msg}")
+    stash(folder, before)
+    time.sleep(0.6)
+
+
 def run_ipc(name: str, file: str, label: str, verify):
     """Launch a second copy with a file (what 'Send to' / right-click does) → menu → click."""
     import subprocess
@@ -579,6 +638,9 @@ def main():
             select_extra=True)
         # ---- second launch with a file (Send To / right-click path)
         run_ipc("Send To → PNG", "Photo.jpg", "PNG", v_format("PNG", ".png"))
+        # ---- no dragging: select a file, tap Shift twice
+        run_tap("Shift×2: JPG → PNG", "explorer", "Photo.jpg", "Convert", "PNG", v_format("PNG", ".png"))
+        run_tap("Shift×2 + Shift: PDF Rotate", "explorer", "Report.pdf", "Tools", "Rotate", v_rotated)
         # ---- from the Desktop
         run("Desktop: JPG → PNG", "desktop", ["D-Photo.jpg"], "Convert", "PNG", v_format("PNG", ".png"))
         run("Desktop: PDF → TXT", "desktop", ["D-Report.pdf"], "Convert", "TXT", v_format("TXT", ".txt"))
@@ -589,6 +651,7 @@ def main():
             drive_addbg)
         run("Desktop: 2 PDFs merge", "desktop", ["D-Appendix.pdf", "D-Report.pdf"], "Tools", "Merge", v_merged,
             select_extra=True)
+        run_tap("Desktop Shift×2: PDF → TXT", "desktop", "D-Report.pdf", "Convert", "TXT", v_format("TXT", ".txt"))
     except Exception:
         wk.log("E2E ABORTED\n" + traceback.format_exc())
     finally:

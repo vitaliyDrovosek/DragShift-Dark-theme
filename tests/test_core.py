@@ -166,7 +166,7 @@ def _fake_watcher(monkeypatch, drag_alive=False):
     state = {"visible": False, "got": False}
     w = trigger.DragShiftWatcher(lambda: state["visible"], lambda: state["got"])
     fake = FakeMac()
-    w._mac = w._darwin = fake
+    w._mac = w._darwin = w._keys = fake
     ev = {"show": 0, "hide": 0, "tap": 0}
     w.show_menu.connect(lambda p: (ev.__setitem__("show", ev["show"] + 1), state.__setitem__("visible", True)))
     w.double_tap.connect(lambda p: ev.__setitem__("tap", ev["tap"] + 1))
@@ -253,3 +253,55 @@ def test_shift_tap_flips_ring_in_click_menu_without_reopening(monkeypatch):
     tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
     tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
     assert len(flips) == 2 and ev["tap"] == 1            # each tap flips, no second menu
+
+
+def test_click_menu_reports_mouse_down_and_escape(monkeypatch):
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    w.click_menu_visible = lambda: True
+    downs = []
+    w.click_menu_mouse_down.connect(lambda p: downs.append(p))
+    tick(); tick(btn=True); tick(btn=True); tick(btn=False)
+    assert len(downs) == 1                               # one press = one report
+    tick(esc=True); tick(esc=True)
+    assert ev["hide"] == 1
+
+
+def test_windows_key_activity(monkeypatch):
+    from dragshift import platform_win
+    held = set()
+
+    class FakeUser32:
+        def GetAsyncKeyState(self, vk): return 0x8000 if vk in held else 0
+    monkeypatch.setattr(platform_win, "user32", FakeUser32())
+    k = platform_win.KeyActivity()
+    assert k.seconds_since_key_typed() > 1e6
+    held.add(0x41)                                       # "A" (a capital letter with Shift)
+    k.poll(platform_win.time.monotonic())
+    assert k.seconds_since_key_typed() < 1
+    held.clear(); held.add(platform_win.VK_SHIFT)
+    assert not k.other_modifiers_down("shift")
+    held.add(platform_win.VK_CONTROL)                    # Ctrl+Shift shortcut
+    assert k.other_modifiers_down("shift")
+
+
+def test_windows_double_tap_ignores_capitals(monkeypatch):
+    """A Windows-style key source (with poll) feeds the same double-tap logic."""
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    from dragshift import trigger
+
+    class WinKeys:
+        typed_at = -1e9
+        letter = False
+        def poll(self, now):
+            if self.letter:
+                self.typed_at = now
+        def seconds_since_key_typed(self): return trigger.time.monotonic() - self.typed_at
+        def other_modifiers_down(self, name): return False
+    keys = WinKeys()
+    w._keys = keys
+    tick(); tick(dt=0.1, shift=True); tick(dt=0.08, shift=False); tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    assert ev["tap"] == 1
+    tick(dt=1.0)
+    tick(dt=0.1, shift=True); keys.letter = True; tick(dt=0.03, shift=True); keys.letter = False
+    tick(dt=0.05, shift=False); tick(dt=0.2, shift=True); tick(dt=0.08, shift=False)
+    assert ev["tap"] == 1                                # "Hello" typed: no menu

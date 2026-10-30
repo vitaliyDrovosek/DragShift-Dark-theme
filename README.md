@@ -56,7 +56,7 @@ Open **DragShift** from the app menu. It sits in the panel's notification area, 
 3. Drop the file on a slice. The result is saved **next to the original**, and the original is never changed.
 4. To switch between **Convert** and **Tools**, tap **Shift** again.
 
-**Mac, without dragging:** select one or more files in Finder or on the desktop and **tap Shift twice**. The menu opens under the cursor; just click a slice (tap **Shift** or click the centre to switch Convert ⇄ Tools, click anywhere else or press Esc to close). The first time, macOS asks whether DragShift may control Finder: it only asks Finder which files are selected. You can turn this off in Settings. Right-click a file → **Open With → DragShift** opens the same click menu.
+**Without dragging (Windows and Mac):** select one or more files in File Explorer, Finder or on the desktop and **tap Shift twice**. The menu opens under the cursor; just click a slice (tap **Shift** or click the centre to switch Convert ⇄ Tools, click anywhere else or press Esc to close). It doesn't open while you type capital letters or use shortcuts like Ctrl+Shift. On Mac, the first time, macOS asks whether DragShift may control Finder: it only asks Finder which files are selected. You can turn this off in Settings. Right-click a file → **Open With → DragShift** opens the same click menu.
 
 Each action ends with a notification that shows what changed, for example *"2.4 MB → 610 KB · 75% smaller"* or *"2400×1600 → 1200×800"*, with **Open**, **Show in folder** and **Undo**. Undo moves the new file to the Recycle Bin (Trash on Mac and Linux).
 

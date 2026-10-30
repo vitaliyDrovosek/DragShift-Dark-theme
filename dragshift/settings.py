@@ -23,7 +23,7 @@ DEFAULTS = {
     "pdf_dpi": 200,
     "trigger": "shift",
     "welcomed": False,
-    "double_tap": True,     # macOS: tap the trigger key twice on a Finder selection
+    "double_tap": True,     # tap the trigger key twice on a Finder / Explorer selection
 }
 
 
@@ -166,9 +166,12 @@ class SettingsWindow(GlassWindow):
             self.auto.toggled.connect(set_autostart)
             grid.addWidget(self.auto, r, 1)
             r += 1
-        if IS_MAC:
-            key = {"shift": "Shift", "ctrl": "Control", "alt": "Option"}.get(self.s.get("trigger"), "Shift")
-            self.dtap = QCheckBox(f"Tap {key} twice on files selected in Finder to open the menu")
+        if IS_MAC or IS_WIN:
+            names = {"shift": "Shift", "ctrl": "Control", "alt": "Option"} if IS_MAC else \
+                {"shift": "Shift", "ctrl": "Ctrl", "alt": "Alt"}
+            key = names.get(self.s.get("trigger"), "Shift")
+            where = "Finder" if IS_MAC else "File Explorer"
+            self.dtap = QCheckBox(f"Tap {key} twice on files selected in {where} to open the menu")
             self.dtap.setChecked(bool(self.s.get("double_tap")))
             self.dtap.toggled.connect(lambda v: self._save("double_tap", bool(v)))
             grid.addWidget(self.dtap, r, 1)

@@ -149,6 +149,7 @@ class DragShiftApp(QObject):
         self.watcher.show_menu.connect(lambda pos: self.menu.popup(pos, fresh=self.watcher.fresh_file_drag()))
         self.watcher.pasteboard_ready.connect(self.menu.load_drag_pasteboard)
         self.watcher.double_tap.connect(lambda pos: self.finder_menu())
+        self.watcher.click_menu_mouse_down.connect(self._click_outside)
         if IS_MAC:
             # click-mode menus: a click in another app deactivates us -> close the menu
             qapp.applicationStateChanged.connect(self._app_state)
@@ -368,9 +369,14 @@ class DragShiftApp(QObject):
         self.menu.activateWindow()
 
     def finder_menu(self):
-        """macOS: the trigger key was tapped twice — open the menu for the files selected in
-        Finder (or on the desktop). Nothing to hold: just click a slice."""
-        if not IS_MAC or self.menu.isVisible():
+        """The trigger key was tapped twice — open the menu for the files selected in Finder /
+        File Explorer (or on the desktop). Nothing to hold: just click a slice."""
+        if self.menu.isVisible():
+            return
+        if IS_WIN:
+            self.explorer_menu()
+            return
+        if not IS_MAC:
             return
         from . import platform_mac
         if not platform_mac.finder_frontmost():
@@ -385,6 +391,25 @@ class DragShiftApp(QObject):
         elif err == 0:
             self.toasts.info("Select a file first",
                              f"Click a file in Finder or on the desktop, then tap {self.trigger_label()} twice.")
+
+    def explorer_menu(self):
+        """Windows: the double tap, for files selected in File Explorer or on the desktop."""
+        from . import platform_win
+        if not platform_win.explorer_frontmost():
+            return
+        paths, err = platform_win.explorer_selection()
+        print(f"double-tap: {len(paths)} file(s) selected in Explorer (err {err})", flush=True)
+        if paths:
+            self.show_click_menu(paths)
+        elif err == 0:
+            self.toasts.info("Select a file first",
+                             f"Click a file in File Explorer or on the desktop, then tap {self.trigger_label()} twice.")
+
+    def _click_outside(self, pos):
+        """A click menu is open and the mouse went down somewhere: outside the menu = close.
+        (On Windows the menu can't always take the mouse capture from Explorer.)"""
+        if self.menu.isVisible() and self.menu.click_mode and not self.menu.frameGeometry().contains(pos):
+            QTimer.singleShot(60, lambda: self.menu.click_mode and self.menu.close_menu())
 
     def _app_state(self, state):
         if state == Qt.ApplicationActive or not (self.menu.isVisible() and self.menu.click_mode):
