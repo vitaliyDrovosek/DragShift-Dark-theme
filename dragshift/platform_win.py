@@ -129,15 +129,32 @@ def _desktop_window(shell_app):
     loc = win32com.client.VARIANT(pythoncom.VT_I4, 0)          # CSIDL_DESKTOP
     # FindWindowSW([in] VARIANT*, [in] VARIANT*, [in] int SWC_DESKTOP=8, [out] long* hwnd,
     #              [in] int SWFO_NEEDDISPATCH=1) -> IDispatch*
-    res = ole.InvokeTypes(dispid, 0, pythoncom.DISPATCH_METHOD, (pythoncom.VT_DISPATCH, 0),
-                          ((pythoncom.VT_VARIANT | pythoncom.VT_BYREF, 1),
-                           (pythoncom.VT_VARIANT | pythoncom.VT_BYREF, 1),
-                           (pythoncom.VT_I4, 1),
-                           (pythoncom.VT_I4 | pythoncom.VT_BYREF, 2),
-                           (pythoncom.VT_I4, 1)),
-                          loc, empty, 8, pythoncom.Missing, 1)
-    disp = res[0] if isinstance(res, tuple) else res
-    return win32com.client.Dispatch(disp)
+    types = ((pythoncom.VT_VARIANT | pythoncom.VT_BYREF, 1),
+             (pythoncom.VT_VARIANT | pythoncom.VT_BYREF, 1),
+             (pythoncom.VT_I4, 1),
+             (pythoncom.VT_I4 | pythoncom.VT_BYREF, 3),
+             (pythoncom.VT_I4, 1))
+    attempts = (
+        lambda: ole.InvokeTypes(dispid, 0, pythoncom.DISPATCH_METHOD, (pythoncom.VT_DISPATCH, 0),
+                                types, loc, empty, 8, 0, 1),
+        lambda: windows.FindWindowSW(0, empty, 8, 0, 1),
+        lambda: windows.FindWindowSW(loc, empty, 8, 0, 1),
+    )
+    last = None
+    for i, call in enumerate(attempts):
+        try:
+            res = call()
+            disp = res[0] if isinstance(res, tuple) else res
+            if disp is None:
+                raise RuntimeError("no desktop window")
+            win = disp if hasattr(disp, "Document") else win32com.client.Dispatch(disp)
+            win.Document                              # must expose the folder view
+            if i:
+                print(f"desktop view via fallback {i}", flush=True)
+            return win
+        except Exception as e:
+            last = e
+    raise last
 
 
 def explorer_selection() -> tuple[list[str], int]:
