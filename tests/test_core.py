@@ -151,6 +151,7 @@ def _fake_watcher(monkeypatch, drag_alive=False):
         typed_ago = 1e9
         count = 1
         alive = drag_alive
+        allowed = True
         def left_button_down(self): return self.btn
         def key_down(self, name): return self.shift
         def escape_down(self): return self.esc
@@ -158,6 +159,7 @@ def _fake_watcher(monkeypatch, drag_alive=False):
         def drag_session_active(self): return self.alive
         def other_modifiers_down(self, name): return False
         def seconds_since_key_typed(self): return self.typed_ago
+        def source_allowed(self): return self.allowed
 
     clock = {"t": 100.0}
     monkeypatch.setattr(trigger.time, "monotonic", lambda: clock["t"])
@@ -179,6 +181,23 @@ def _fake_watcher(monkeypatch, drag_alive=False):
         clock["t"] += dt
         w._tick()
     return w, fake, pos, ev, tick, state
+
+
+def test_drag_outside_a_file_manager_does_not_open_the_menu(monkeypatch):
+    from PySide6.QtCore import QPoint
+    w, fake, pos, ev, tick, state = _fake_watcher(monkeypatch)
+    fake.allowed = False
+    tick(btn=True)
+    pos["p"] = QPoint(130, 100)
+    tick(btn=True, shift=True)
+    assert ev["show"] == 0                    # browser / editor / game: no menu
+
+    fake.allowed = True
+    tick(btn=False)
+    tick(btn=True)
+    pos["p"] = QPoint(160, 100)
+    tick(btn=True, shift=True)
+    assert ev["show"] == 1                    # next drag from a file manager opens it
 
 
 def test_trackpad_flicker_does_not_close_the_menu(monkeypatch):

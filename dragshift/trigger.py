@@ -1,11 +1,14 @@
-"""Watches for "left button held + mouse moved + Shift pressed" anywhere on screen, which
-is what a Shift+drag of a file looks like. Polling global input state is simple, needs no
-admin rights and can't stall the system the way a broken hook can.
+"""Watches for "left button held + mouse moved + Shift pressed" in File Explorer, Finder,
+a Linux file manager or on the desktop, which is what a Shift+drag of a file looks like.
+The foreground app is checked first so the menu does not pop up for Shift+drags in
+browsers, editors, games, etc. Polling global input state is simple, needs no admin rights
+and can't stall the system the way a broken hook can.
 Windows: GetAsyncKeyState. macOS: NSEvent.pressedMouseButtons / modifierFlags (no
 Accessibility or Input Monitoring permission required)."""
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 import time
 
@@ -56,6 +59,11 @@ class DoubleTap:
                 self._press_t = None
         self._was = key
         return fired
+
+# Explorer windows and the desktop all run in explorer.exe.  The class-name
+# fallback keeps the trigger working if the process query is blocked.
+WIN_EXPLORER_CLASSES = {"CabinetWClass", "ExploreWClass", "Progman", "WorkerW"}
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
 class DragShiftWatcher(QObject):
@@ -116,6 +124,62 @@ class DragShiftWatcher(QObject):
 
     def _down(self, vk: int) -> bool:
         return bool(self._user32.GetAsyncKeyState(vk) & 0x8000)
+
+    @staticmethod
+    def _windows_source_allowed(hwnd: int = 0) -> bool:
+        """True only for File Explorer windows and the desktop (both explorer.exe)."""
+        u = ctypes.windll.user32
+        k32 = ctypes.windll.kernel32
+        u.GetForegroundWindow.restype = ctypes.c_void_p
+        u.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        u.GetWindowThreadProcessId.restype = ctypes.c_ulong
+        u.GetClassNameW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+        u.GetClassNameW.restype = ctypes.c_int
+        if not hwnd:
+            hwnd = u.GetForegroundWindow()
+        if not hwnd:
+            return False
+
+        pid = ctypes.c_ulong()
+        u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value:
+            k32.OpenProcess.restype = ctypes.c_void_p
+            k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_uint32]
+            k32.QueryFullProcessImageNameW.argtypes = [ctypes.c_void_p, ctypes.c_uint32,
+                                                       ctypes.c_wchar_p,
+                                                       ctypes.POINTER(ctypes.c_ulong)]
+            k32.QueryFullProcessImageNameW.restype = ctypes.c_int
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+            if h:
+                try:
+                    buf = ctypes.create_unicode_buffer(1024)
+                    size = ctypes.c_ulong(len(buf))
+                    if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                        if os.path.basename(buf.value).lower() == "explorer.exe":
+                            return True
+                finally:
+                    k32.CloseHandle(h)
+
+        buf = ctypes.create_unicode_buffer(256)
+        u.GetClassNameW(hwnd, buf, len(buf))
+        return buf.value in WIN_EXPLORER_CLASSES
+
+    def _source_allowed(self) -> bool:
+        """The Shift+drag menu may only start from a file manager or the desktop."""
+        if self._mac is not None:
+            fn = getattr(self._mac, "source_allowed", None)
+            if fn is not None:
+                try:
+                    return bool(fn())
+                except Exception:
+                    return True
+        if sys.platform == "win32":
+            try:
+                return self._windows_source_allowed()
+            except Exception:
+                return True
+        return True
 
     def _state(self) -> tuple[bool, bool, bool]:
         """(left button, trigger key, escape)"""
@@ -206,9 +270,13 @@ class DragShiftWatcher(QObject):
                 moved = (pos - self._down_at).manhattanLength() >= DRAG_THRESHOLD
                 if self.enabled and moved and shift and not self._fired:
                     self._fired = True
-                    self._idle_ticks = 0
-                    self._shown_at = pos
-                    self.show_menu.emit(pos)
+                    # Don't pop the menu for Shift+drags in browsers, editors,
+                    # games, etc. — only when the drag starts in a file manager
+                    # window or on the desktop.
+                    if self._source_allowed():
+                        self._idle_ticks = 0
+                        self._shown_at = pos
+                        self.show_menu.emit(pos)
             else:
                 self._down_at = None
                 self._fired = False

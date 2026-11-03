@@ -20,6 +20,15 @@ from pathlib import Path
 
 BUTTON1, SHIFT, CONTROL, MOD1 = 1 << 8, 1 << 0, 1 << 2, 1 << 3
 KEY_MASKS = {"shift": SHIFT, "ctrl": CONTROL, "alt": MOD1}
+XA_WINDOW, XA_STRING, ANY_PROPERTY_TYPE = 33, 31, 0
+
+# Window/process names of common X11 file managers and desktops.  The Shift
+# trigger is only useful when the drag starts in one of these.
+FILE_MANAGER_HINTS = (
+    "thunar", "nautilus", "nemo", "caja", "dolphin", "pcmanfm", "spacefm",
+    "krusader", "doublecmd", "filer", "xfdesktop", "plasmashell", "gnome-shell",
+    "lxqt", "kdesktop", "nudel", "desktop",
+)
 
 
 class _X11:
@@ -44,6 +53,15 @@ class _X11:
             x.XInternAtom.restype = ctypes.c_ulong
             x.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
             x.XGetSelectionOwner.restype = ctypes.c_ulong
+            x.XGetWindowProperty.argtypes = [
+                ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_long,
+                ctypes.c_long, ctypes.c_int, ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+            ]
+            x.XGetWindowProperty.restype = ctypes.c_int
+            x.XFree.argtypes = [ctypes.c_void_p]
             x.XDefaultScreen.argtypes = [ctypes.c_void_p]
             self.x = x
             self.dpy = x.XOpenDisplay(None)       # our own connection: thread-safe vs Qt's
@@ -67,6 +85,43 @@ class _X11:
         keys = ctypes.create_string_buffer(32)
         self.x.XQueryKeymap(self.dpy, keys)
         return bool(keys.raw[self.esc // 8] & (1 << (self.esc % 8)))
+
+    def _prop(self, window: int, name: str, req_type: int):
+        atom = self.x.XInternAtom(self.dpy, name.encode(), 0)
+        atype, afmt = ctypes.c_ulong(), ctypes.c_int()
+        nitems, after = ctypes.c_ulong(), ctypes.c_ulong()
+        data = ctypes.POINTER(ctypes.c_ubyte)()
+        rc = self.x.XGetWindowProperty(
+            self.dpy, window, atom, 0, 1024, 0, req_type,
+            ctypes.byref(atype), ctypes.byref(afmt), ctypes.byref(nitems),
+            ctypes.byref(after), ctypes.byref(data),
+        )
+        if rc != 0 or not data:
+            return None, 0
+        try:
+            # Xlib returns format-32 items as C longs, not 4-byte ints.
+            size = nitems.value * (ctypes.sizeof(ctypes.c_long) if afmt.value == 32 else max(1, afmt.value // 8))
+            return ctypes.string_at(data, size), afmt.value
+        finally:
+            self.x.XFree(data)
+
+    def active_window(self) -> int:
+        data, _ = self._prop(self.root, "_NET_ACTIVE_WINDOW", XA_WINDOW)
+        if not data:
+            return 0
+        return ctypes.c_ulong.from_buffer_copy(data[:ctypes.sizeof(ctypes.c_ulong)]).value
+
+    def window_pid(self, window: int) -> int:
+        data, _ = self._prop(window, "_NET_WM_PID", ANY_PROPERTY_TYPE)
+        if not data:
+            return 0
+        return ctypes.c_ulong.from_buffer_copy(data[:ctypes.sizeof(ctypes.c_ulong)]).value
+
+    def window_class(self, window: int) -> str:
+        data, _ = self._prop(window, "WM_CLASS", XA_STRING)
+        if not data:
+            return ""
+        return data.replace(b"\0", b" ").decode("utf-8", "replace").strip().lower()
 
     def composited(self) -> bool:
         scr = self.x.XDefaultScreen(self.dpy)
@@ -104,6 +159,33 @@ def key_down(name: str) -> bool:
 
 def escape_down() -> bool:
     return x11().escape()
+
+
+def source_allowed() -> bool:
+    """True when the active window belongs to a file manager or the desktop."""
+    x = x11()
+    if not x.ok:
+        return True
+    try:
+        window = x.active_window()
+        if not window:              # no active window: the desktop has focus
+            return True
+        names = [x.window_class(window)]
+        pid = x.window_pid(window)
+        if pid:
+            try:
+                names.append(Path(f"/proc/{pid}/comm").read_text(
+                    encoding="utf-8", errors="replace").strip().lower())
+            except OSError:
+                pass
+            try:
+                names.append(Path(f"/proc/{pid}/exe").resolve().name.lower())
+            except OSError:
+                pass
+        blob = " ".join(n for n in names if n)
+        return any(hint in blob for hint in FILE_MANAGER_HINTS)
+    except Exception:
+        return True
 
 
 # ---------------------------------------------------------------- compositing

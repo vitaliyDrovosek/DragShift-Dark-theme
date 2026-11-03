@@ -45,6 +45,21 @@ def escape_down() -> bool:
         return False
 
 
+def source_allowed() -> bool:
+    """True when Finder is frontmost (Finder also owns the desktop)."""
+    if not OK:
+        return True
+    try:
+        app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+        if app is None:
+            return True
+        bundle = str(app.bundleIdentifier() or "")
+        name = str(app.localizedName() or "")
+        return bundle == "com.apple.finder" or name == "Finder"
+    except Exception:
+        return True
+
+
 # ---------------------------------------------------------------- app behaviour
 def become_accessory():
     """Menu-bar app: no Dock icon (the bundle also sets LSUIElement)."""
